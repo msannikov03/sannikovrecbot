@@ -1,0 +1,16 @@
+{
+  "name": "sannikovrecbot",
+  "version": "1.0.0",
+  "description": "This is a telegram bot that sends information about places to go based on the experience of Mike Sannikov.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^16.3.1",
+    "mysql": "^2.18.1",
+    "node-telegram-bot-api": "^0.64.0"
+  }
+}
