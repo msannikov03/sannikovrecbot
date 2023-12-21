@@ -12,6 +12,21 @@ const pool = mysql.createPool({
     database: process.env.DB_NAME
 });
 
+const fs = require('fs');
+
+function addRecommendationWithImageUrl(cityId, categoryId, name, description, address, rating, imageUrl) {
+  const query = `INSERT INTO Recommendations (city_id, category_id, name, description, address, rating, image_url) VALUES (?, ?, ?, ?, ?, ?, ?)`;
+  pool.query(query, [cityId, categoryId, name, description, address, rating, imageUrl], (err, results) => {
+      if (err) {
+          console.error('Error executing insert query:', err);
+          return;
+      }
+      console.log('Recommendation added with ID:', results.insertId);
+  });
+}
+
+// addRecommendationWithImageUrl(1, 1, 'Louvre Museum', 'The world\'s largest art museum.', 'Rue de Rivoli, 75001 Paris, France', 4.8, 'https://news.artnet.com/app/news-upload/2022/11/GettyImages-1238211781-scaled.jpg');
+
 let userSessions = {};
 
 function initializeUserSession(chatId) {
@@ -130,7 +145,7 @@ function fetchRecommendations(chatId) {
   }
 
   const query = `
-      SELECT Recommendations.name, Recommendations.description, Recommendations.address, Recommendations.rating
+      SELECT Recommendations.name, Recommendations.description, Recommendations.address, Recommendations.rating, Recommendations.image_url
       FROM Recommendations
       JOIN Cities ON Recommendations.city_id = Cities.city_id
       JOIN Categories ON Recommendations.category_id = Categories.category_id
@@ -147,12 +162,21 @@ function fetchRecommendations(chatId) {
           bot.sendMessage(chatId, 'No recommendations found for the selected options.');
           return;
       }
-      const recommendationsText = results.map(rec => `*${rec.name}*\nDescription: ${rec.description}\nAddress: ${rec.address}\nRating: ${rec.rating}`).join('\n\n');
+      const rec = results[0];
+      const recommendationsText = `*${rec.name}*\nDescription: ${rec.description}\nAddress: ${rec.address}\nRating: ${rec.rating}`;
       const keyboard = [[{ text: 'Restart Bot', callback_data: 'restart_bot' }]];
-      bot.sendMessage(chatId, `Recommendations:\n\n${recommendationsText}`, { 
+      if (rec.image_url) {
+        bot.sendPhoto(chatId, rec.image_url, { 
+          caption: recommendationsText,
           parse_mode: 'Markdown',
           reply_markup: { inline_keyboard: keyboard }
-      });
+        });
+      } else {
+        bot.sendMessage(chatId, `Recommendations:\n\n${recommendationsText}`, { 
+          parse_mode: 'Markdown',
+          reply_markup: { inline_keyboard: keyboard }
+        });
+      }
   });
 }
 
