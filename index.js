@@ -54,10 +54,36 @@ function displayInitialOptions(chatId) {
       [{ text: 'Select Location Manually', callback_data: 'search_selectLocation' }]
   ];
   
-  bot.sendMessage(chatId, 'How would you like to search?', {
+  bot.sendMessage(chatId, 'To find you recommendations, pick the option for searching:', {
       reply_markup: { inline_keyboard: keyboard }
   }).then(sentMessage => {
       userSessions[chatId].lastMessageId = sentMessage.message_id;
+  });
+}
+
+function findClosestCities(chatId, userLat, userLng) {
+  const query = `
+    SELECT city_id, name, lat, lng, 
+    (6371 * acos(cos(radians(?)) * cos(radians(lat)) * cos(radians(lng) - radians(?)) + sin(radians(?)) * sin(radians(lat)))) AS distance 
+    FROM Cities 
+    ORDER BY distance 
+    LIMIT 3;
+  `;
+
+  pool.query(query, [userLat, userLng, userLat], (err, results) => {
+    if (err) {
+      console.error('Error finding closest cities:', err);
+      bot.sendMessage(chatId, "Sorry, couldn't find any cities near you.");
+      return;
+    }
+    const locationkeyboard = results.map(city => [{ text: city.name, callback_data: 'city_' + city.city_id }]);
+    const backKeyboard = [{ text: '⬅️ Back', callback_data: 'back_location' }];
+    const keyboard = [...locationkeyboard, backKeyboard];
+    bot.sendMessage(chatId, 'Based on your location, we recommend picking the cities closest to you:', {
+        reply_markup: { inline_keyboard: keyboard }
+    }).then(sentMessage => {
+        userSessions[chatId].lastMessageId = sentMessage.message_id;
+    });
   });
 }
 
@@ -89,8 +115,9 @@ function fetchCountries(chatId) {
           console.error('Error executing query:', err);
           return;
       }
-      const keyboard = results.map(country => [{ text: country.name, callback_data: 'country_' + country.country_id }]);
-      
+      const countryKeyboard = results.map(country => [{ text: country.name, callback_data: 'country_' + country.country_id }]);
+      const backKeyboard = [{ text: '⬅️ Back', callback_data: 'back_continent' }];
+      const keyboard = [...countryKeyboard, backKeyboard];
       bot.sendMessage(chatId, 'Select a country:', {
           reply_markup: { inline_keyboard: keyboard }
       }).then(sentMessage => {
@@ -111,8 +138,9 @@ function fetchCities(chatId) {
           console.error('Error executing query:', err);
           return;
       }
-      const keyboard = results.map(city => [{ text: city.name, callback_data: 'city_' + city.city_id }]);
-      
+      const cityKeyboard = results.map(city => [{ text: city.name, callback_data: 'city_' + city.city_id }]);
+      const backKeyboard = [{ text: '⬅️ Back', callback_data: 'back_country' }];
+      const keyboard = [...cityKeyboard, backKeyboard];
       bot.sendMessage(chatId, 'Select a city:', {
           reply_markup: { inline_keyboard: keyboard }
       }).then(sentMessage => {
@@ -186,6 +214,11 @@ bot.onText(/\/start/, (msg) => {
   displayInitialOptions(chatId);
 });
 
+bot.onText(/\/help/, (msg) => {
+  const chatId = msg.chat.id;
+  bot.sendMessage(chatId, 'Welcome to the recommendation bot! You can use this bot to find recommendations for places to visit in a city. All these recommendations are based on my personal experience, so, if you enjoy my vibes, you will love these places. You can search by your current location or select a location manually.');
+});
+
 bot.on('callback_query', (callbackQuery) => {
   const chatId = callbackQuery.message.chat.id;
   const data = callbackQuery.data;
@@ -197,6 +230,22 @@ bot.on('callback_query', (callbackQuery) => {
     bot.deleteMessage(chatId, userSessions[chatId].lastMessageId);
   }
 
+  if (data === 'back_continent') {
+    updateUserSession(chatId, 'step', 'continent');
+    fetchContinents(chatId);
+    return;
+  }
+
+  if (data === 'back_country') {
+      updateUserSession(chatId, 'step', 'country');
+      fetchCountries(chatId);
+      return;
+  }
+  if (data === 'back_location') {
+    initializeUserSession(chatId);
+    displayInitialOptions(chatId);
+    return;
+}
   if (data === 'restart_bot') {
     initializeUserSession(chatId);
     displayInitialOptions(chatId);
@@ -206,12 +255,12 @@ bot.on('callback_query', (callbackQuery) => {
   switch (userSessions[chatId].step) {
     case 'initial':
       if (data === 'search_currentLocation') {
-          // Handle current location search
-          // This might involve asking the user to share their location
+        updateUserSession(chatId, 'awaitingLocation', true);
+        bot.sendMessage(chatId, 'Please send your location using the paperclip (📎) icon.');
       } else if (data === 'search_selectLocation') {
-          updateUserSession(chatId, 'searchType', 'selectLocation');
-          updateUserSession(chatId, 'step', 'continent');
-          fetchContinents(chatId);
+        updateUserSession(chatId, 'searchType', 'selectLocation');
+        updateUserSession(chatId, 'step', 'continent');
+        fetchContinents(chatId);
       }
       break;
     case 'continent':
@@ -247,8 +296,20 @@ bot.on('callback_query', (callbackQuery) => {
       }
       break;    
   }
-  if (data === 'restart_bot') {
-    initializeUserSession(chatId);
-    displayInitialOptions(chatId);
+});
+
+bot.on('location', (msg) => {
+  const chatId = msg.chat.id;
+  if (userSessions[chatId] && userSessions[chatId].awaitingLocation) {
+    const { latitude, longitude } = msg.location;
+    findClosestCities(chatId, latitude, longitude);
+    updateUserSession(chatId, 'awaitingLocation', false);
+    updateUserSession(chatId, 'step', 'city');
+  }
+  else if (!userSessions[chatId].awaitingLocation){
+    bot.sendMessage(chatId, 'No need to send location at this moment. Please switch options.');
+  }
+  else {
+    bot.sendMessage(chatId, 'Invalid location received. Please try again.');
   }
 });
